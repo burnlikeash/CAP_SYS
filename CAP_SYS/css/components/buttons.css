@@ -1,0 +1,79 @@
+/* Button Component Styles */
+
+/* Sentiment Section */
+.sentiment-section, .trending-section {
+    background: white;
+    padding: 1.5rem;
+    border-radius: 12px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    border: 1px solid #f3f4f6;
+}
+
+.sentiment-buttons {
+    display: flex;
+    gap: 0.75rem;
+}
+
+.sentiment-btn {
+    flex: 1;
+    padding: 0.875rem;
+    border: 1px solid #e5e7eb;
+    background: white;
+    border-radius: 8px;
+    font-size: 1rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    color: #374151;
+}
+
+.sentiment-btn.positive:hover, 
+.sentiment-btn.positive.active {
+    background: #10b981;
+    color: white;
+    border-color: #10b981;
+}
+
+.sentiment-btn.negative:hover, 
+.sentiment-btn.negative.active {
+    background: #ef4444;
+    color: white;
+    border-color: #ef4444;
+}
+
+/* Topic Buttons */
+.topics-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.75rem;
+}
+
+.topic-btn {
+    padding: 0.75rem;
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-weight: 500;
+    color: #374151;
+    text-align: center;
+}
+
+.topic-btn:hover, 
+.topic-btn.active {
+    background: #3b82f6;
+    color: white;
+    border-color: #3b82f6;
+}
+
+/* Button Responsive */
+@media (max-width: 768px) {
+    .topics-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    
+    .sentiment-buttons {
+        flex-direction: column;
+    }
+}

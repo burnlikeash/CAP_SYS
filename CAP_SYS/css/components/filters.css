@@ -1,0 +1,40 @@
+/* Filter Component Styles */
+.filters {
+    margin-bottom: 2rem;
+}
+
+.filter-label {
+    font-weight: 500;
+    margin-bottom: 0.75rem;
+    display: inline-block;
+    color: #374151;
+}
+
+.filter-buttons {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.filter-btn {
+    padding: 0.5rem 1rem;
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 20px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-size: 0.875rem;
+    color: #6b7280;
+    font-weight: 500;
+}
+
+.filter-btn:hover, 
+.filter-btn.active {
+    background: #3b82f6;
+    color: white;
+    border-color: #3b82f6;
+}
+
+.filter-btn.active {
+    transform: none;
+}

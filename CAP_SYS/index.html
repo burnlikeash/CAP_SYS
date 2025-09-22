@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SentimentScope - Product Review Analysis</title>
+    
+    <!-- CSS Files -->
+    <link rel="stylesheet" href="css/main.css">
+    <link rel="stylesheet" href="css/components/header.css">
+    <link rel="stylesheet" href="css/components/dropdown.css">
+    <link rel="stylesheet" href="css/components/buttons.css">
+    <link rel="stylesheet" href="css/components/cards.css">
+    <link rel="stylesheet" href="css/components/filters.css">
+</head>
+<body>
+    <!-- Header Component -->
+    <header class="header">
+        <div class="logo">SentimentScope</div>
+        <div class="search-container">
+            <input type="text" class="search-bar" placeholder="Search products, brands, reviews...">
+            <button class="search-btn">🔍</button>
+        </div>
+        <div class="tabs">
+            <div class="tab active">Reviews</div>
+            <div class="tab">Analytics</div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <!-- Control Grid -->
+        <div class="content-grid">
+            <!-- Brands Dropdown Component -->
+            <div class="brands-dropdown">
+                <button class="brands-btn">
+                    BRANDS
+                    <span class="dropdown-arrow">▼</span>
+                </button>
+                <div class="dropdown-content">
+                    <!-- Dropdown items populated by JavaScript -->
+                </div>
+            </div>
+            
+            <!-- Sentiment Section Component -->
+            <div class="sentiment-section">
+                <h2 class="section-title">Search by Sentiment</h2>
+                <div class="sentiment-buttons">
+                    <button class="sentiment-btn positive">POSITIVE</button>
+                    <button class="sentiment-btn negative">NEGATIVE</button>
+                </div>
+            </div>
+
+            <!-- Trending Topics Component -->
+            <div class="trending-section">
+                <h2 class="section-title">Trending Topics</h2>
+                <div class="topics-grid">
+                    <!-- Topic buttons populated by JavaScript -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Filters Component -->
+        <div class="filters">
+            <span class="filter-label">Filter by:</span>
+            <div class="filter-buttons">
+                <!-- Filter buttons populated by JavaScript -->
+            </div>
+        </div>
+
+        <!-- Results Component -->
+        <div class="results-grid">
+            <!-- Product cards populated by JavaScript -->
+        </div>
+
+        <div class="view-more">
+            <a href="#">View more results...</a>
+        </div>
+    </main>
+
+    <!-- JavaScript Files -->
+    <script src="data/products.js"></script>
+    <script src="js/utils/helpers.js"></script>
+    <script src="js/components/header.js"></script>
+    <script src="js/components/dropdown.js"></script>
+    <script src="js/components/filters.js"></script>
+    <script src="js/components/search.js"></script>
+    <script src="js/components/productCards.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>
