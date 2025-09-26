@@ -39,16 +39,8 @@ class HeaderComponent {
     }
 
     handleTabSwitch(tabName) {
-        switch(tabName) {
-            case 'Reviews':
-                this.showReviewsContent();
-                break;
-            case 'Analytics':
-                this.showAnalyticsContent();
-                break;
-            default:
-                this.showReviewsContent();
-        }
+        // Only Reviews view is supported now
+        this.showReviewsContent();
     }
 
     showReviewsContent() {
@@ -59,13 +51,7 @@ class HeaderComponent {
         console.log('Showing reviews content');
     }
 
-    showAnalyticsContent() {
-        // Hide main content and show analytics placeholder
-        console.log('Analytics view - Feature coming soon');
-        
-        // You can implement analytics view here
-        // For now, just log the action
-    }
+    // Removed analytics view
 
     getActiveTab() {
         return this.activeTab;

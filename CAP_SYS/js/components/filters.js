@@ -29,8 +29,19 @@ class FilterComponent {
         // Clear existing topics
         this.topicsGrid.innerHTML = '';
         
+        // Get topics
+        const topics = (window.dataManager && typeof window.dataManager.getTopics === 'function')
+            ? window.dataManager.getTopics()
+            : TOPICS;
+        
+        // Shuffle topics randomly
+        const shuffled = [...topics].sort(() => 0.5 - Math.random());
+        
+        // Pick 6 topics (or fewer if less than 6 available)
+        const selectedTopics = shuffled.slice(0, 6);
+        
         // Add topic buttons
-        TOPICS.forEach(topic => {
+        selectedTopics.forEach(topic => {
             const button = createElement('button', ['topic-btn'], topic);
             button.addEventListener('click', () => this.selectTopic(topic));
             this.topicsGrid.appendChild(button);
@@ -39,24 +50,24 @@ class FilterComponent {
         // Update topic buttons reference
         this.topicButtons = document.querySelectorAll('.topic-btn');
     }
+    
 
     populateFilters() {
         // Clear existing filters
         this.filterButtonsContainer.innerHTML = '';
         
-        // Add filter buttons
-        FILTERS.forEach(filter => {
-            const button = createElement('button', ['filter-btn'], filter.name, {
+        // Add label
+        const label = createElement('span', [], 'Average Sentiment (Stars):');
+        label.style.marginRight = '8px';
+        this.filterButtonsContainer.appendChild(label);
+    
+        // Create star rating buttons 1★ to 5★
+        [1, 2, 3, 4, 5].forEach(val => {
+            const filter = { name: `${val}★`, type: 'avg_sentiment', value: val };
+            const button = createElement('button', ['filter-btn'], `${val}★`, {
                 'data-type': filter.type,
-                'data-value': filter.value
+                'data-value': String(filter.value)
             });
-            
-            // Set initial active state for "Positive" filter
-            if (filter.name === 'Positive') {
-                button.classList.add('active');
-                this.activeFilters.activeFilter = filter;
-            }
-            
             button.addEventListener('click', () => this.selectFilter(filter, button));
             this.filterButtonsContainer.appendChild(button);
         });
@@ -64,12 +75,16 @@ class FilterComponent {
         // Update filter buttons reference
         this.filterButtons = document.querySelectorAll('.filter-btn');
     }
+    
 
     setupEventListeners() {
         // Sentiment buttons
         this.sentimentButtons.forEach(btn => {
             btn.addEventListener('click', () => {
-                const sentiment = btn.classList.contains('positive') ? 'positive' : 'negative';
+                let sentiment = null;
+                if (btn.classList.contains('positive')) sentiment = 'positive';
+                else if (btn.classList.contains('negative')) sentiment = 'negative';
+                else if (btn.classList.contains('neutral')) sentiment = 'neutral';
                 this.selectSentiment(sentiment, btn);
             });
         });

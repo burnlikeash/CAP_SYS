@@ -86,8 +86,26 @@ CREATE TABLE review_topics (
 
 
 #3 RUN ML API
-- run this command in terminal
+- run this command in new terminal
 
-[ python ml_api.py ]
+[uvicorn ml_api:app --reload --port 8001]
 
-- in another terminal, run: 
+- in another terminal, run: (endpoints, processes reviews)
+
+curl -X POST http://127.0.0.1:8001/run-sentiment
+curl -X POST http://127.0.0.1:8001/run-topics
+curl -X POST http://127.0.0.1:8001/process-all
+
+
+#4 RUN DB API
+- run this command in new terminal
+
+[uvicorn db_api:app --reload --port 8000]
+
+
+#5 RUN WEBSITE
+- run this command in new terminal
+
+[python -m http.server 3000]
+
+

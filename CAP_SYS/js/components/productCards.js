@@ -1,4 +1,4 @@
-// Product Cards Component Logic - Updated for Single Filter
+// Product Cards Component Logic
 
 class ProductCardsComponent {
     constructor() {
@@ -37,7 +37,7 @@ class ProductCardsComponent {
 
     applyFilters(products, filters) {
         return products.filter(product => {
-            // Filter by sentiment (from sentiment buttons)
+            // Filter by sentiment
             if (filters.sentiment && product.sentiment !== filters.sentiment) {
                 return false;
             }
@@ -49,9 +49,12 @@ class ProductCardsComponent {
                 }
             }
             
-            // Filter by topic/category
-            if (filters.topic && product.category !== filters.topic) {
-                return false;
+            // Filter by topic from DB topics
+            if (filters.topic) {
+                const productTopics = Array.isArray(product.topics) ? product.topics : [];
+                if (!productTopics.includes(filters.topic)) {
+                    return false;
+                }
             }
             
             // Filter by search term
@@ -63,40 +66,14 @@ class ProductCardsComponent {
                 }
             }
             
-            // Apply the single active filter
-            if (filters.activeFilter) {
-                const filter = filters.activeFilter;
-                
-                switch(filter.type) {
-                    case 'sentiment':
-                        if (product.sentiment !== filter.value) {
-                            return false;
-                        }
-                        break;
-                    case 'price':
-                        // Example price filtering logic
-                        if (filter.value === 'high') {
-                            // Assume products with rating > 4.0 are high-priced premium items
-                            if (product.rating <= 4.0) {
-                                return false;
-                            }
-                        } else if (filter.value === 'low') {
-                            // Assume products with rating <= 4.0 are budget-friendly
-                            if (product.rating > 4.0) {
-                                return false;
-                            }
-                        }
-                        break;
-                    case 'rating':
-                        if (filter.value === 'high' && product.rating < 4.5) {
-                            return false;
-                        } else if (filter.value === 'low' && product.rating >= 4.0) {
-                            return false;
-                        }
-                        break;
-                    // Add more filter types as needed
-                    default:
-                        console.log('Unknown filter type:', filter.type);
+            // (removed) Apply additional filters - path unused
+
+            // Average sentiment quick filter (1..5 rounded)
+            if (filters.activeFilter && filters.activeFilter.type === 'avg_sentiment') {
+                const target = Number(filters.activeFilter.value);
+                const rating = Number(product.rating || 0);
+                if (Math.round(rating) !== target) {
+                    return false;
                 }
             }
             
@@ -182,13 +159,9 @@ class ProductCardsComponent {
         // Product footer
         const footer = createElement('div', ['product-footer']);
         
-        // Rating with improved display
-        const rating = createElement('span', ['rating', product.sentiment]);
-        rating.innerHTML = `
-            <span style="font-weight: 600;">Rating:</span> 
-            ${capitalize(product.sentiment)} 
-            <span style="color: #9ca3af; font-size: 0.8em;">(${product.rating}/5)</span>
-        `;
+        // Rating
+        const rating = createElement('span', ['rating', product.sentiment], 
+            `Rating: ${capitalize(product.sentiment)}`);
         
         // View review link
         const viewReview = createElement('a', ['view-review'], 'View Full Review', {
@@ -230,7 +203,8 @@ class ProductCardsComponent {
         // Handle viewing full review
         console.log('Viewing full review for:', product.name);
         
-        // Emit event for main app to handle
+        // You can implement a modal or navigate to a detailed view
+        // For now, just emit an event
         document.dispatchEvent(new CustomEvent('viewReviewRequested', {
             detail: { product }
         }));
@@ -243,19 +217,6 @@ class ProductCardsComponent {
                 <div style="font-size: 3rem; margin-bottom: 1rem;">🔍</div>
                 <h3 style="font-size: 1.25rem; margin-bottom: 0.5rem; color: #374151;">No products found</h3>
                 <p>Try adjusting your filters or search terms</p>
-                <button onclick="window.SentimentScope.getComponent('filters').clearAllFilters()" 
-                        style="
-                            margin-top: 1rem;
-                            padding: 0.5rem 1rem;
-                            background: #3b82f6;
-                            color: white;
-                            border: none;
-                            border-radius: 6px;
-                            cursor: pointer;
-                            font-weight: 500;
-                        ">
-                    Clear All Filters
-                </button>
             </div>
         `;
         
@@ -281,33 +242,5 @@ class ProductCardsComponent {
 
     getFilteredProducts() {
         return this.filteredProducts;
-    }
-
-    // Method to get current filter summary for display
-    getFilterSummary() {
-        const filters = this.currentFilters;
-        const summary = [];
-        
-        if (filters.sentiment) {
-            summary.push(`Sentiment: ${capitalize(filters.sentiment)}`);
-        }
-        
-        if (filters.brand && filters.brand !== 'All Brands' && filters.brand !== 'BRANDS') {
-            summary.push(`Brand: ${filters.brand}`);
-        }
-        
-        if (filters.topic) {
-            summary.push(`Category: ${filters.topic}`);
-        }
-        
-        if (filters.activeFilter) {
-            summary.push(`Filter: ${filters.activeFilter.name}`);
-        }
-        
-        if (filters.search) {
-            summary.push(`Search: "${filters.search}"`);
-        }
-        
-        return summary;
     }
 }

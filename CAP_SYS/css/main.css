@@ -35,21 +35,7 @@ body {
     color: #111827;
 }
 
-.view-more {
-    text-align: center;
-    margin-top: 2rem;
-}
 
-.view-more a {
-    color: #3b82f6;
-    text-decoration: none;
-    font-weight: 500;
-    font-size: 1rem;
-}
-
-.view-more a:hover {
-    text-decoration: underline;
-}
 
 /* Responsive Design */
 @media (max-width: 768px) {

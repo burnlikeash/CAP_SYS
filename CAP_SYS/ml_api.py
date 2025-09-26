@@ -1,258 +1,379 @@
-# ml_api.py
-from fastapi import FastAPI
+# ml_api.py - Simple and Robust ML Pipeline API
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 import mysql.connector
-import pandas as pd
 from transformers import pipeline
 from bertopic import BERTopic
 from sentence_transformers import SentenceTransformer
 import re
 import spacy
 from sklearn.feature_extraction.text import CountVectorizer
+import logging
+from typing import Dict, List
+import traceback
 
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-app = FastAPI(title="ML Pipeline API - Sentiment & Topics")
-nlp = spacy.load("en_core_web_sm", disable=["ner", "parser"])
+app = FastAPI(title="Simple ML Pipeline API", version="1.0.0")
 
-# Database connection
-def get_db():
-    return mysql.connector.connect(
-        host="localhost",
-        user="root",
-        password="",
-        database="smartphone_reviews"
-    )
-
-# Load models once
-sentiment_model = pipeline(
-    "sentiment-analysis",
-    model="distilbert/distilbert-base-uncased-finetuned-sst-2-english",
-    tokenizer="distilbert/distilbert-base-uncased-finetuned-sst-2-english",
-    truncation=True,     # 🚀 cut reviews longer than 512 tokens
-    max_length=512       # 🚀 safe size for DistilBERT
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
-embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
 
-# 1. Run Sentiment Analysis on all reviews
-@app.post("/run-sentiment")
-def run_sentiment():
-    conn = get_db()
-    cursor = conn.cursor(dictionary=True)
-
-    # fetch all reviews
-    cursor.execute("SELECT review_id, review_text FROM reviews")
-    reviews = cursor.fetchall()
-
-    for review in reviews:
-        result = sentiment_model(review["review_text"])[0]
-        label = result["label"].lower()  # "POSITIVE" → "positive"
-        score = float(result["score"])
-
-        # insert or update
-        cursor.execute("""
-            INSERT INTO sentiments (review_id, sentiment_label, sentiment_score)
-            VALUES (%s, %s, %s)
-            ON DUPLICATE KEY UPDATE
-                sentiment_label = VALUES(sentiment_label),
-                sentiment_score = VALUES(sentiment_score)
-        """, (review["review_id"], label, score))
-
-    conn.commit()
-    conn.close()
-    return {"status": f"Sentiment analysis done for {len(reviews)} reviews"}
-
-
-# 2. Run Topic Modeling on all reviews
-@app.post("/run-all-topics")
-def run_all_topics():
-    import re
-    import spacy
-    from sklearn.feature_extraction.text import CountVectorizer, ENGLISH_STOP_WORDS
-
-    # Load spaCy once (can move to top of file for efficiency)
+# Load models once at startup
+print("Loading ML models...")
+try:
+    sentiment_model = pipeline(
+        "sentiment-analysis",
+        model="distilbert/distilbert-base-uncased-finetuned-sst-2-english",
+        tokenizer="distilbert/distilbert-base-uncased-finetuned-sst-2-english",
+        truncation=True,
+        max_length=512
+    )
+    embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
     nlp = spacy.load("en_core_web_sm", disable=["ner", "parser"])
+    print("✅ All models loaded successfully!")
+except Exception as e:
+    print(f"❌ Failed to load models: {e}")
+    sentiment_model = None
+    embedding_model = None
+    nlp = None
 
-    def clean_text(text: str) -> str:
-        # lowercase
-        text = text.lower()
-        # remove non-alphabetic characters
-        text = re.sub(r"[^a-z\s]", "", text)
-        # process with spacy
-        doc = nlp(text)
-        tokens = [
-            token.lemma_ for token in doc
-            if not token.is_stop and len(token) > 2
-        ]
-        return " ".join(tokens)
-
-    conn = get_db()
-    cursor = conn.cursor(dictionary=True)
-
-    # get all phones
-    cursor.execute("SELECT phone_id FROM phones")
-    phones = cursor.fetchall()
-
-    results = []
-
-    for phone in phones:
-        phone_id = phone["phone_id"]
-
-        # get reviews for this phone
-        cursor.execute("SELECT review_id, review_text FROM reviews WHERE phone_id = %s", (phone_id,))
-        reviews = cursor.fetchall()
-
-        if not reviews:
-            continue
-
-        # Preprocess reviews
-        docs = [clean_text(r["review_text"]) for r in reviews]
-        review_ids = [r["review_id"] for r in reviews]
-
-        # ✅ Custom stopwords (english + extras)
-        extra_stopwords = {"phone", "review", "smartphone"}
-        all_stopwords = list(ENGLISH_STOP_WORDS.union(extra_stopwords))
-        vectorizer_model = CountVectorizer(stop_words=all_stopwords)
-
-        # train topic model with custom vectorizer
-        topic_model = BERTopic(
-            embedding_model=embedding_model,
-            vectorizer_model=vectorizer_model
+# Simple database connection
+def get_db():
+    try:
+        return mysql.connector.connect(
+            host="localhost",
+            user="root",
+            password="",
+            database="smartphone_reviews",
+            charset='utf8mb4',
+            use_unicode=True,
+            autocommit=False
         )
-        topics, probs = topic_model.fit_transform(docs)
+    except mysql.connector.Error as err:
+        logger.error(f"Database connection error: {err}")
+        raise HTTPException(status_code=500, detail="Database connection failed")
 
-        # insert topics + review-topic links
-        for i, topic_id in enumerate(topics):
-            if topic_id == -1:  # skip outliers
-                continue
+# Simple text cleaning
+def clean_text(text: str) -> str:
+    """Very simple text cleaning"""
+    if not text or len(text.strip()) < 10:
+        return ""
+    
+    # Basic cleaning
+    text = text.lower()
+    text = re.sub(r'[^a-zA-Z\s]', '', text)  # Keep only letters and spaces
+    text = re.sub(r'\s+', ' ', text).strip()  # Normalize spaces
+    
+    return text
 
-            terms = topic_model.get_topic(topic_id)
-            if not terms:
-                continue
+# Health check
+@app.get("/")
+def health_check():
+    return {
+        "status": "healthy",
+        "models_loaded": {
+            "sentiment": sentiment_model is not None,
+            "embedding": embedding_model is not None,
+            "nlp": nlp is not None
+        }
+    }
 
-            topic_label = terms[0][0]  # pick top word as label
-            rep_terms = ", ".join([word for word, _ in terms])
+# Get processing status
+@app.get("/status")
+def get_processing_status():
+    try:
+        conn = get_db()
+        cursor = conn.cursor(dictionary=True)
+        
+        cursor.execute("SELECT COUNT(*) as total FROM reviews")
+        total_reviews = cursor.fetchone()['total']
+        
+        cursor.execute("SELECT COUNT(*) as processed FROM sentiments")
+        processed_sentiments = cursor.fetchone()['processed']
+        
+        cursor.execute("SELECT COUNT(*) as topics FROM topics")
+        total_topics = cursor.fetchone()['topics']
+        
+        cursor.close()
+        conn.close()
+        
+        return {
+            "total_reviews": total_reviews,
+            "processed_sentiments": processed_sentiments,
+            "unprocessed_reviews": total_reviews - processed_sentiments,
+            "total_topics": total_topics,
+            "sentiment_percentage": round((processed_sentiments / total_reviews * 100), 1) if total_reviews > 0 else 0
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-            # ✅ Insert or update topic (prevent duplicates)
-            cursor.execute("""
-                INSERT INTO topics (phone_id, topic_label, representative_terms)
-                VALUES (%s, %s, %s)
-                ON DUPLICATE KEY UPDATE
-                    representative_terms = VALUES(representative_terms)
-            """, (phone_id, topic_label, rep_terms))
+# Simple sentiment analysis
+@app.post("/run-sentiment")
+def run_sentiment_analysis():
+    if not sentiment_model:
+        raise HTTPException(status_code=500, detail="Sentiment model not loaded")
+    
+    try:
+        conn = get_db()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Get unprocessed reviews
+        cursor.execute("""
+            SELECT r.review_id, r.review_text
+            FROM reviews r
+            LEFT JOIN sentiments s ON r.review_id = s.review_id
+            WHERE s.review_id IS NULL
+            LIMIT 2000
+        """)
+        
+        reviews = cursor.fetchall()
+        processed = 0
+        errors = 0
+        
+        logger.info(f"Processing {len(reviews)} unprocessed reviews...")
+        
+        for review in reviews:
+            try:
+                text = review['review_text']
+                if len(text.strip()) < 10:  # Skip very short reviews
+                    continue
+                
+                # Get sentiment
+                result = sentiment_model(text)[0]
+                label = result['label'].lower()  # 'positive' or 'negative'
+                score = float(result['score'])
+                
+                # Convert to our format (positive/negative/neutral)
+                if label == 'positive' and score < 0.7:
+                    label = 'neutral'
+                elif label == 'negative' and score < 0.7:
+                    label = 'neutral'
+                
+                # Insert into database
+                cursor.execute("""
+                    INSERT INTO sentiments (review_id, sentiment_label, sentiment_score)
+                    VALUES (%s, %s, %s)
+                    ON DUPLICATE KEY UPDATE
+                        sentiment_label = VALUES(sentiment_label),
+                        sentiment_score = VALUES(sentiment_score)
+                """, (review['review_id'], label, score))
+                
+                processed += 1
+                
+                if processed % 100 == 0:
+                    logger.info(f"Processed {processed} reviews...")
+                    
+            except Exception as e:
+                errors += 1
+                logger.error(f"Error processing review {review['review_id']}: {e}")
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return {
+            "status": "completed",
+            "processed": processed,
+            "errors": errors,
+            "total_reviews": len(reviews)
+        }
+        
+    except Exception as e:
+        logger.error(f"Sentiment analysis failed: {e}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
 
-            new_topic_id = cursor.lastrowid
-            if new_topic_id == 0:
-                # If duplicate, fetch its topic_id
-                cursor.execute(
-                    "SELECT topic_id FROM topics WHERE phone_id = %s AND topic_label = %s",
-                    (phone_id, topic_label)
+# Simple topic modeling
+@app.post("/run-topics")
+def run_topic_modeling():
+    if not embedding_model or not nlp:
+        raise HTTPException(status_code=500, detail="Topic modeling models not loaded")
+    
+    try:
+        conn = get_db()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Get phones with reviews
+        cursor.execute("""
+            SELECT p.phone_id, p.phone_name, COUNT(r.review_id) as review_count
+            FROM phones p
+            INNER JOIN reviews r ON p.phone_id = r.phone_id
+            GROUP BY p.phone_id, p.phone_name
+            HAVING COUNT(r.review_id) >= 10
+            ORDER BY review_count DESC
+        """)
+        
+        phones = cursor.fetchall()
+        results = []
+        
+        logger.info(f"Processing topics for {len(phones)} phones...")
+        
+        for phone in phones:
+            phone_id = phone['phone_id']
+            phone_name = phone['phone_name']
+            
+            try:
+                # Get reviews for this phone
+                cursor.execute("""
+                    SELECT review_id, review_text
+                    FROM reviews
+                    WHERE phone_id = %s
+                """, (phone_id,))
+                
+                reviews = cursor.fetchall()
+                
+                # Clean reviews
+                docs = []
+                review_ids = []
+                
+                for review in reviews:
+                    cleaned = clean_text(review['review_text'])
+                    if cleaned and len(cleaned.split()) >= 5:  # At least 5 words
+                        docs.append(cleaned)
+                        review_ids.append(review['review_id'])
+                
+                if len(docs) < 10:  # Need minimum documents
+                    results.append(f"Skipped {phone_name}: only {len(docs)} clean reviews")
+                    continue
+                
+                # Very simple vectorizer - no complex parameters
+                vectorizer = CountVectorizer(
+                    stop_words='english',
+                    min_df=2,  # Simple: word must appear in at least 2 docs
+                    max_features=1000,  # Limit vocabulary size
+                    ngram_range=(1, 1)  # Only single words
                 )
-                new_topic_id = cursor.fetchone()["topic_id"]
+                
+                # Simple BERTopic setup
+                topic_model = BERTopic(
+                    embedding_model=embedding_model,
+                    vectorizer_model=vectorizer,
+                    nr_topics="auto",
+                    min_topic_size=5  # Simple fixed minimum
+                )
+                
+                # Fit model
+                topics, probs = topic_model.fit_transform(docs)
+                
+                # Process topics
+                topics_created = 0
+                unique_topics = set(topics)
+                
+                for topic_id in unique_topics:
+                    if topic_id == -1:  # Skip outliers
+                        continue
+                    
+                    try:
+                        # Get topic words
+                        topic_words = topic_model.get_topic(topic_id)
+                        if not topic_words or len(topic_words) < 3:
+                            continue
+                        
+                        # Create simple topic label
+                        topic_label = "_".join([word for word, _ in topic_words[:3]])
+                        representative_terms = ", ".join([f"{word}({score:.2f})" for word, score in topic_words[:5]])
+                        
+                        # Insert topic
+                        cursor.execute("""
+                            INSERT IGNORE INTO topics (phone_id, topic_label, representative_terms)
+                            VALUES (%s, %s, %s)
+                        """, (phone_id, topic_label, representative_terms))
+                        
+                        topic_db_id = cursor.lastrowid
+                        if topic_db_id == 0:  # Topic already exists
+                            cursor.execute("""
+                                SELECT topic_id FROM topics
+                                WHERE phone_id = %s AND topic_label = %s
+                            """, (phone_id, topic_label))
+                            result = cursor.fetchone()
+                            if result:
+                                topic_db_id = result['topic_id']
+                        
+                        # Insert review-topic relationships
+                        if topic_db_id:
+                            for i, doc_topic in enumerate(topics):
+                                if doc_topic == topic_id:
+                                    score = float(probs[i]) if probs is not None else 0.5
+                                    cursor.execute("""
+                                        INSERT IGNORE INTO review_topics (review_id, topic_id, relevance_score)
+                                        VALUES (%s, %s, %s)
+                                    """, (review_ids[i], topic_db_id, score))
+                        
+                        topics_created += 1
+                        
+                    except Exception as topic_error:
+                        logger.error(f"Error processing topic {topic_id} for {phone_name}: {topic_error}")
+                
+                results.append(f"✅ {phone_name}: {topics_created} topics created")
+                logger.info(f"Processed {phone_name}: {topics_created} topics")
+                
+            except Exception as phone_error:
+                error_msg = f"❌ {phone_name}: {str(phone_error)}"
+                results.append(error_msg)
+                logger.error(error_msg)
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return {
+            "status": "completed",
+            "phones_processed": len(phones),
+            "results": results
+        }
+        
+    except Exception as e:
+        logger.error(f"Topic modeling failed: {e}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
 
-            # ✅ Insert or update review-topic mapping
-            cursor.execute("""
-                INSERT INTO review_topics (review_id, topic_id, relevance_score)
-                VALUES (%s, %s, %s)
-                ON DUPLICATE KEY UPDATE
-                    relevance_score = VALUES(relevance_score)
-            """, (
-                review_ids[i], new_topic_id,
-                float(probs[i]) if probs is not None else 0
-            ))
+# Process everything
+@app.post("/process-all")
+def process_everything():
+    try:
+        # Run sentiment analysis first
+        sentiment_result = run_sentiment_analysis()
+        
+        # Then run topic modeling
+        topic_result = run_topic_modeling()
+        
+        return {
+            "status": "completed",
+            "sentiment_result": sentiment_result,
+            "topic_result": topic_result
+        }
+        
+    except Exception as e:
+        logger.error(f"Full processing failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
-        results.append(f"Topics generated/updated for phone_id {phone_id}")
+# Clear all processed data
+@app.delete("/clear-all")
+def clear_processed_data():
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        cursor.execute("DELETE FROM review_topics")
+        cursor.execute("DELETE FROM topics")
+        cursor.execute("DELETE FROM sentiments")
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return {"status": "All processed data cleared"}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-    conn.commit()
-    conn.close()
-    return {"status": results}
-
-
-# 3. Run Topic Modeling on specific phone-ids (/run-topics/1)
-@app.post("/run-topics/{phone_id}")
-def run_topics(phone_id: int):
-    import re
-    import spacy
-    from sklearn.feature_extraction.text import CountVectorizer
-
-    nlp = spacy.load("en_core_web_sm", disable=["ner", "parser"])
-
-    def clean_text(text: str) -> str:
-        text = text.lower()
-        text = re.sub(r"[^a-z\s]", "", text)
-        doc = nlp(text)
-        tokens = [
-            token.lemma_
-            for token in doc
-            if not token.is_stop and len(token) > 2
-        ]
-        return " ".join(tokens)
-
-    conn = get_db()
-    cursor = conn.cursor(dictionary=True)
-
-    # get reviews for this phone
-    cursor.execute(
-        "SELECT review_id, review_text FROM reviews WHERE phone_id = %s",
-        (phone_id,)
-    )
-    reviews = cursor.fetchall()
-
-    if not reviews:
-        return {"status": f"No reviews found for phone_id {phone_id}"}
-
-    docs = [clean_text(r["review_text"]) for r in reviews]
-    review_ids = [r["review_id"] for r in reviews]
-
-    # add extra stopwords
-    extra_stopwords = ["phone", "review", "smartphone"]
-    vectorizer_model = CountVectorizer(stop_words="english")
-    vectorizer_model.stop_words = set(vectorizer_model.get_stop_words()).union(extra_stopwords)
-
-    # train topic model
-    topic_model = BERTopic(
-        embedding_model=embedding_model,
-        vectorizer_model=vectorizer_model
-    )
-    topics, probs = topic_model.fit_transform(docs)
-
-    for i, topic_id in enumerate(topics):
-        if topic_id == -1:
-            continue
-
-        terms = topic_model.get_topic(topic_id)
-        if not terms:
-            continue
-
-        topic_label = terms[0][0]
-        rep_terms = ", ".join([word for word, _ in terms])
-
-        # ✅ insert or update topic (deduplication)
-        cursor.execute("""
-            INSERT INTO topics (phone_id, topic_label, representative_terms)
-            VALUES (%s, %s, %s)
-            ON DUPLICATE KEY UPDATE representative_terms = VALUES(representative_terms)
-        """, (phone_id, topic_label, rep_terms))
-        new_topic_id = cursor.lastrowid or cursor.lastrowid
-
-        # ✅ get topic_id in case it already existed
-        if new_topic_id == 0:
-            cursor.execute("""
-                SELECT topic_id FROM topics
-                WHERE phone_id = %s AND topic_label = %s
-            """, (phone_id, topic_label))
-            new_topic_id = cursor.fetchone()["topic_id"]
-
-        # ✅ insert or update review-topic link
-        cursor.execute("""
-            INSERT INTO review_topics (review_id, topic_id, relevance_score)
-            VALUES (%s, %s, %s)
-            ON DUPLICATE KEY UPDATE relevance_score = VALUES(relevance_score)
-        """, (
-            review_ids[i],
-            new_topic_id,
-            float(probs[i]) if probs is not None else 0
-        ))
-
-    conn.commit()
-    conn.close()
-    return {"status": f"Topics generated for phone_id {phone_id}"}
-
+# Run with: uvicorn ml_api:app --reload --port 8001

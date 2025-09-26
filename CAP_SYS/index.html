@@ -21,16 +21,47 @@
             <input type="text" class="search-bar" placeholder="Search products, brands, reviews...">
             <button class="search-btn">🔍</button>
         </div>
-        <div class="tabs">
-            <div class="tab active">Reviews</div>
-            <div class="tab">Analytics</div>
-        </div>
+        <div class="tabs"></div>
     </header>
 
     <!-- Main Content -->
     <main class="main-content">
+        <!-- Database Status Banner -->
+        <div id="database-banner" style="
+            background: linear-gradient(90deg, #f0f9ff, #ecfdf5);
+            border: 1px solid #bfdbfe;
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 2rem;
+            display: none;
+            align-items: center;
+            gap: 1rem;
+        ">
+            <div style="font-size: 1.5rem;">📊</div>
+            <div style="flex: 1;">
+                <div style="font-weight: 600; color: #1e40af; margin-bottom: 0.25rem;">
+                    Connected to Database
+                </div>
+                <div style="color: #6b7280; font-size: 0.875rem;">
+                    Real-time data from smartphone review database
+                </div>
+            </div>
+            <button id="refresh-data" style="
+                background: #3b82f6;
+                color: white;
+                border: none;
+                padding: 0.5rem 1rem;
+                border-radius: 6px;
+                cursor: pointer;
+                font-size: 0.875rem;
+                transition: background-color 0.2s;
+            " onmouseover="this.style.background='#2563eb'" onmouseout="this.style.background='#3b82f6'">
+                Refresh Data
+            </button>
+        </div>
+
         <!-- Control Grid -->
-        <div class="content-grid">
+        <div class="content-grid" style="margin-bottom: 0.75rem;">
             <!-- Brands Dropdown Component -->
             <div class="brands-dropdown">
                 <button class="brands-btn">
@@ -47,6 +78,7 @@
                 <h2 class="section-title">Search by Sentiment</h2>
                 <div class="sentiment-buttons">
                     <button class="sentiment-btn positive">POSITIVE</button>
+                    <button class="sentiment-btn neutral">NEUTRAL</button>
                     <button class="sentiment-btn negative">NEGATIVE</button>
                 </div>
             </div>
@@ -57,6 +89,9 @@
                 <div class="topics-grid">
                     <!-- Topic buttons populated by JavaScript -->
                 </div>
+            </div>
+            <div style="grid-column: 3; display: flex; justify-content: flex-end;">
+                <button id="clear-filters" style="background: #f3f4f6; color: #374151; border: 1px solid #e5e7eb; padding: 0.4rem 0.50rem; border-radius: 6px; cursor: pointer; font-size: 0.875rem;" onmouseover="this.style.background='#e5e7eb'" onmouseout="this.style.background='#f3f4f6'">Clear All</button>
             </div>
         </div>
 
@@ -73,12 +108,53 @@
             <!-- Product cards populated by JavaScript -->
         </div>
 
-        <div class="view-more">
-            <a href="#">View more results...</a>
-        </div>
+        
     </main>
 
-    <!-- JavaScript Files -->
+    <!-- Debug Panel (Hidden by default) -->
+    <div id="debug-panel" style="
+        position: fixed;
+        bottom: 60px;
+        right: 20px;
+        background: white;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 1rem;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        max-width: 300px;
+        display: none;
+        z-index: 1001;
+    ">
+        <div style="font-weight: 600; margin-bottom: 0.5rem; color: #111827;">
+            Debug Panel
+        </div>
+        <div id="debug-info" style="font-size: 0.8rem; color: #6b7280; line-height: 1.4;">
+            <!-- Debug info populated by JavaScript -->
+        </div>
+        <div style="margin-top: 0.75rem; display: flex; gap: 0.5rem;">
+            <button onclick="window.SentimentScope.refreshData()" style="
+                background: #3b82f6;
+                color: white;
+                border: none;
+                padding: 0.25rem 0.5rem;
+                border-radius: 4px;
+                cursor: pointer;
+                font-size: 0.75rem;
+            ">Refresh</button>
+            <button onclick="window.apiService.clearCache()" style="
+                background: #f59e0b;
+                color: white;
+                border: none;
+                padding: 0.25rem 0.5rem;
+                border-radius: 4px;
+                cursor: pointer;
+                font-size: 0.75rem;
+            ">Clear Cache</button>
+        </div>
+    </div>
+
+    <!-- JavaScript Files - Database API Only -->
+    <script src="js/services/apiService.js"></script>
     <script src="data/products.js"></script>
     <script src="js/utils/helpers.js"></script>
     <script src="js/components/header.js"></script>
@@ -87,5 +163,75 @@
     <script src="js/components/search.js"></script>
     <script src="js/components/productCards.js"></script>
     <script src="js/main.js"></script>
+
+    <!-- Initialize Database Features -->
+    <script>
+        // Setup database functionality only
+        document.addEventListener('DOMContentLoaded', function() {
+            const banner = document.getElementById('database-banner');
+            const refreshBtn = document.getElementById('refresh-data');
+            
+            // Show banner if database is connected
+            setTimeout(() => {
+                if (window.dataManager && window.dataManager.isUsingDatabase()) {
+                    banner.style.display = 'flex';
+                }
+            }, 1000);
+
+            // Refresh data from database
+            refreshBtn.addEventListener('click', async () => {
+                if (window.SentimentScope) {
+                    refreshBtn.textContent = 'Refreshing...';
+                    refreshBtn.disabled = true;
+                    
+                    await window.SentimentScope.refreshData();
+                    
+                    refreshBtn.textContent = 'Refresh Data';
+                    refreshBtn.disabled = false;
+                }
+            });
+
+            // Debug panel toggle (Ctrl+D)
+            document.addEventListener('keydown', (e) => {
+                if ((e.ctrlKey || e.metaKey) && e.key === 'd') {
+                    e.preventDefault();
+                    const debugPanel = document.getElementById('debug-panel');
+                    const isVisible = debugPanel.style.display !== 'none';
+                    debugPanel.style.display = isVisible ? 'none' : 'block';
+                    
+                    if (!isVisible) {
+                        updateDebugInfo();
+                    }
+                }
+            });
+
+            // Update debug info
+            function updateDebugInfo() {
+                const debugInfo = document.getElementById('debug-info');
+                if (window.dataManager) {
+                    const status = window.dataManager.getDataStatus();
+                    debugInfo.innerHTML = `
+                        <div><strong>Database:</strong> ${status.usingDatabase ? 'Connected' : 'Disconnected'}</div>
+                        <div><strong>Products:</strong> ${status.productsCount}</div>
+                        <div><strong>Brands:</strong> ${status.brandsCount}</div>
+                        <div><strong>Last Fetch:</strong> ${status.lastFetch ? new Date(status.lastFetch).toLocaleTimeString() : 'Never'}</div>
+                        <div><strong>Loading:</strong> ${status.isLoading ? 'Yes' : 'No'}</div>
+                        <div><strong>Cache Entries:</strong> ${window.apiService ? window.apiService.cache.size : 0}</div>
+                    `;
+                }
+            }
+
+            // Update debug info every 5 seconds
+            setInterval(updateDebugInfo, 5000);
+        });
+
+        // Global error handler for database operations only
+        window.addEventListener('unhandledrejection', function(event) {
+            console.error('Unhandled promise rejection:', event.reason);
+            if (event.reason.message && event.reason.message.includes('fetch')) {
+                console.log('Database connection issue detected, using fallback data');
+            }
+        });
+    </script>
 </body>
 </html>

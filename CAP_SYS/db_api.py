@@ -1,71 +1,511 @@
-# db_api.py
-from fastapi import FastAPI
+# db_api.py - Updated for Your Specific Schema
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
 import mysql.connector
-from typing import List, Dict
+from typing import List, Dict, Optional
+import logging
 
-app = FastAPI(title="Database API - Smartphone Reviews")
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# Database connection
+app = FastAPI(title="SentimentScope Database API", version="1.0.0")
+
+# Add CORS middleware to allow frontend connections
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, specify your frontend domain
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Database connection with error handling
 def get_db():
-    return mysql.connector.connect(
-        host="localhost",
-        user="root",
-        password="",
-        database="smartphone_reviews"
-    )
+    try:
+        return mysql.connector.connect(
+            host="localhost",
+            user="root",
+            password="",
+            database="smartphone_reviews",
+            charset='utf8mb4',
+            use_unicode=True
+        )
+    except mysql.connector.Error as err:
+        logger.error(f"Database connection error: {err}")
+        raise HTTPException(status_code=500, detail="Database connection failed")
+
+# Health check endpoint
+@app.get("/")
+def health_check():
+    return {"status": "healthy", "message": "SentimentScope API is running"}
+
+# Database stats endpoint
+@app.get("/stats")
+def get_database_stats():
+    """Get overall database statistics"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor(dictionary=True)
+        
+        stats = {}
+        
+        # Count brands
+        cursor.execute("SELECT COUNT(*) as count FROM brands")
+        stats['brands'] = cursor.fetchone()['count']
+        
+        # Count phones
+        cursor.execute("SELECT COUNT(*) as count FROM phones")
+        stats['phones'] = cursor.fetchone()['count']
+        
+        # Count reviews
+        cursor.execute("SELECT COUNT(*) as count FROM reviews")
+        stats['reviews'] = cursor.fetchone()['count']
+        
+        # Count processed sentiments
+        cursor.execute("SELECT COUNT(*) as count FROM sentiments")
+        stats['processed_sentiments'] = cursor.fetchone()['count']
+        
+        # Count topics
+        cursor.execute("SELECT COUNT(*) as count FROM topics")
+        stats['topics'] = cursor.fetchone()['count']
+        
+        cursor.close()
+        conn.close()
+        
+        return stats
+    except Exception as e:
+        logger.error(f"Error getting stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # 1. Get all brands
 @app.get("/brands")
 def get_brands() -> List[Dict]:
-    conn = get_db()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT * FROM brands")
-    results = cursor.fetchall()
-    conn.close()
-    return results
+    """Get all smartphone brands"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT * FROM brands ORDER BY brand_name")
+        results = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        logger.info(f"Retrieved {len(results)} brands")
+        return results
+    except Exception as e:
+        logger.error(f"Error getting brands: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
-# 2. Get phones by brand
+# 2. Get phones with enhanced information
 @app.get("/phones")
-def get_phones(brand_id: int) -> List[Dict]:
-    conn = get_db()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT * FROM phones WHERE brand_id = %s", (brand_id,))
-    results = cursor.fetchall()
-    conn.close()
-    return results
+def get_phones(
+    brand_id: Optional[int] = Query(None, description="Filter by brand ID"),
+    search: Optional[str] = Query(None, description="Search phone names"),
+    limit: Optional[int] = Query(50, description="Limit results")
+) -> List[Dict]:
+    """Get phones with review and sentiment statistics"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Enhanced query to include review count and sentiment info
+        query = """
+            SELECT 
+                p.phone_id,
+                p.phone_name,
+                p.brand_id,
+                b.brand_name,
+                COUNT(DISTINCT r.review_id) as review_count,
+                COUNT(DISTINCT s.sentiment_id) as processed_sentiments,
+                AVG(CASE 
+                    WHEN s.sentiment_label = 'positive' THEN 5
+                    WHEN s.sentiment_label = 'neutral' THEN 3
+                    WHEN s.sentiment_label = 'negative' THEN 1
+                    ELSE NULL
+                END) as avg_sentiment_rating,
+                GROUP_CONCAT(DISTINCT t.topic_label SEPARATOR ', ') as topics
+            FROM phones p
+            LEFT JOIN brands b ON p.brand_id = b.brand_id
+            LEFT JOIN reviews r ON p.phone_id = r.phone_id
+            LEFT JOIN sentiments s ON r.review_id = s.review_id
+            LEFT JOIN topics t ON p.phone_id = t.phone_id
+        """
+        params = []
+        conditions = []
+        
+        if brand_id is not None:
+            conditions.append("p.brand_id = %s")
+            params.append(brand_id)
+            
+        if search:
+            conditions.append("p.phone_name LIKE %s")
+            params.append(f"%{search}%")
+        
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+            
+        query += " GROUP BY p.phone_id, p.phone_name, p.brand_id, b.brand_name"
+        query += " ORDER BY review_count DESC, p.phone_name"
+        
+        if limit:
+            query += f" LIMIT {limit}"
+        
+        cursor.execute(query, params)
+        results = cursor.fetchall()
+        
+        # Convert avg_sentiment_rating to float and handle None values
+        for result in results:
+            if result['avg_sentiment_rating'] is not None:
+                result['avg_sentiment_rating'] = float(result['avg_sentiment_rating'])
+            else:
+                result['avg_sentiment_rating'] = 3.0  # Default neutral
+                
+        cursor.close()
+        conn.close()
+        
+        logger.info(f"Retrieved {len(results)} phones")
+        return results
+    except Exception as e:
+        logger.error(f"Error getting phones: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # 3. Get reviews by phone
 @app.get("/reviews")
-def get_reviews(phone_id: int) -> List[Dict]:
-    conn = get_db()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT * FROM reviews WHERE phone_id = %s", (phone_id,))
-    results = cursor.fetchall()
-    conn.close()
-    return results
+def get_reviews(
+    phone_id: int,
+    limit: Optional[int] = Query(100, description="Limit number of reviews"),
+    with_sentiment: Optional[bool] = Query(True, description="Include sentiment data")
+) -> List[Dict]:
+    """Get reviews for a specific phone with optional sentiment data"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor(dictionary=True)
+        
+        if with_sentiment:
+            query = """
+                SELECT 
+                    r.*,
+                    s.sentiment_label,
+                    s.sentiment_score,
+                    p.phone_name,
+                    b.brand_name
+                FROM reviews r
+                LEFT JOIN sentiments s ON r.review_id = s.review_id
+                LEFT JOIN phones p ON r.phone_id = p.phone_id
+                LEFT JOIN brands b ON p.brand_id = b.brand_id
+                WHERE r.phone_id = %s
+                ORDER BY r.review_id DESC
+                LIMIT %s
+            """
+        else:
+            query = """
+                SELECT 
+                    r.*,
+                    p.phone_name,
+                    b.brand_name
+                FROM reviews r
+                LEFT JOIN phones p ON r.phone_id = p.phone_id
+                LEFT JOIN brands b ON p.brand_id = b.brand_id
+                WHERE r.phone_id = %s
+                ORDER BY r.review_id DESC
+                LIMIT %s
+            """
+            
+        cursor.execute(query, (phone_id, limit))
+        results = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        
+        logger.info(f"Retrieved {len(results)} reviews for phone {phone_id}")
+        return results
+    except Exception as e:
+        logger.error(f"Error getting reviews: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
-# 4. Get sentiment summary by phone
+# 4. Get sentiment summary by phone - Updated for your schema
 @app.get("/sentiments")
 def get_sentiments(phone_id: int) -> Dict:
-    conn = get_db()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute("""
-        SELECT sentiment_label, COUNT(*) as count
-        FROM sentiments
-        INNER JOIN reviews ON sentiments.review_id = reviews.review_id
-        WHERE reviews.phone_id = %s
-        GROUP BY sentiment_label
-    """, (phone_id,))
-    results = cursor.fetchall()
-    conn.close()
-    return {row["sentiment_label"]: row["count"] for row in results}
+    """Get sentiment analysis summary for a phone"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT 
+                s.sentiment_label, 
+                COUNT(*) as count, 
+                AVG(s.sentiment_score) as avg_confidence,
+                MIN(s.sentiment_score) as min_score,
+                MAX(s.sentiment_score) as max_score
+            FROM sentiments s
+            INNER JOIN reviews r ON s.review_id = r.review_id
+            WHERE r.phone_id = %s
+            GROUP BY s.sentiment_label
+            ORDER BY count DESC
+        """, (phone_id,))
+        results = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        
+        # Transform to frontend-friendly format
+        sentiment_data = {}
+        total_reviews = 0
+        
+        for row in results:
+            sentiment_data[row["sentiment_label"]] = {
+                "count": row["count"],
+                "confidence": float(row["avg_confidence"] or 0),
+                "min_score": float(row["min_score"] or 0),
+                "max_score": float(row["max_score"] or 0)
+            }
+            total_reviews += row["count"]
+        
+        # Add percentages
+        for sentiment in sentiment_data:
+            sentiment_data[sentiment]["percentage"] = round(
+                (sentiment_data[sentiment]["count"] / total_reviews) * 100, 1
+            ) if total_reviews > 0 else 0
+        
+        result = {
+            "phone_id": phone_id,
+            "total_reviews": total_reviews,
+            "sentiments": sentiment_data
+        }
+        
+        logger.info(f"Retrieved sentiment data for phone {phone_id}: {total_reviews} processed reviews")
+        return result
+    except Exception as e:
+        logger.error(f"Error getting sentiments: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
-# 5. Get topics by phone
+# 5. Get topics by phone - Updated for your schema
 @app.get("/topics")
 def get_topics(phone_id: int) -> List[Dict]:
-    conn = get_db()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT * FROM topics WHERE phone_id = %s", (phone_id,))
-    results = cursor.fetchall()
-    conn.close()
-    return results
+    """Get discussion topics for a phone with relevance scores"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT 
+                t.*,
+                COUNT(DISTINCT rt.review_id) as review_mentions,
+                AVG(rt.relevance_score) as avg_relevance
+            FROM topics t
+            LEFT JOIN review_topics rt ON t.topic_id = rt.topic_id
+            WHERE t.phone_id = %s
+            GROUP BY t.topic_id
+            ORDER BY avg_relevance DESC, review_mentions DESC
+        """, (phone_id,))
+        results = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        
+        # Convert float fields
+        for result in results:
+            if result['avg_relevance'] is not None:
+                result['avg_relevance'] = float(result['avg_relevance'])
+        
+        logger.info(f"Retrieved {len(results)} topics for phone {phone_id}")
+        return results
+    except Exception as e:
+        logger.error(f"Error getting topics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# 6. Get complete phone details with all related data
+@app.get("/phones/{phone_id}/complete")
+def get_complete_phone_data(phone_id: int) -> Dict:
+    """Get complete phone data including reviews, sentiments, and topics"""
+    try:
+        # Get phone details directly from DB instead of calling get_phones()
+        conn = get_db()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT 
+                p.phone_id,
+                p.phone_name,
+                p.brand_id,
+                b.brand_name
+            FROM phones p
+            LEFT JOIN brands b ON p.brand_id = b.brand_id
+            WHERE p.phone_id = %s
+        """, (phone_id,))
+        phone = cursor.fetchone()
+        cursor.close()
+        conn.close()
+
+        if not phone:
+            raise HTTPException(status_code=404, detail="Phone not found")
+
+        # Wrap subqueries safely
+        try:
+            reviews = get_reviews(phone_id, limit=10)
+        except Exception as e:
+            logger.warning(f"Could not fetch reviews for phone {phone_id}: {e}")
+            reviews = []
+
+        try:
+            sentiments = get_sentiments(phone_id)
+        except Exception as e:
+            logger.warning(f"Could not fetch sentiments for phone {phone_id}: {e}")
+            sentiments = {"phone_id": phone_id, "total_reviews": 0, "sentiments": {}}
+
+        try:
+            topics = get_topics(phone_id)
+        except Exception as e:
+            logger.warning(f"Could not fetch topics for phone {phone_id}: {e}")
+            topics = []
+
+        return {
+            "phone": phone,
+            "reviews": reviews,
+            "sentiments": sentiments,
+            "topics": topics
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting complete phone data: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# 7. Search functionality updated for your schema
+@app.get("/search")
+def search_phones(
+    query: str = Query(..., description="Search query"),
+    sentiment_filter: Optional[str] = Query(None, description="Filter by sentiment"),
+    brand_filter: Optional[int] = Query(None, description="Filter by brand ID"),
+    min_reviews: Optional[int] = Query(None, description="Minimum number of reviews"),
+    limit: Optional[int] = Query(20, description="Limit results")
+) -> Dict:
+    """Advanced search with multiple filters"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor(dictionary=True)
+        
+        search_query = """
+            SELECT DISTINCT 
+                p.*,
+                b.brand_name,
+                COUNT(DISTINCT r.review_id) as review_count,
+                COUNT(DISTINCT s.sentiment_id) as processed_sentiments,
+                AVG(CASE 
+                    WHEN s.sentiment_label = 'positive' THEN 5
+                    WHEN s.sentiment_label = 'neutral' THEN 3
+                    WHEN s.sentiment_label = 'negative' THEN 1
+                    ELSE NULL
+                END) as avg_sentiment_rating
+            FROM phones p
+            LEFT JOIN brands b ON p.brand_id = b.brand_id
+            LEFT JOIN reviews r ON p.phone_id = r.phone_id
+            LEFT JOIN sentiments s ON r.review_id = s.review_id
+            WHERE (p.phone_name LIKE %s OR r.review_text LIKE %s)
+        """
+        params = [f"%{query}%", f"%{query}%"]
+        
+        if sentiment_filter:
+            search_query += " AND s.sentiment_label = %s"
+            params.append(sentiment_filter)
+            
+        if brand_filter:
+            search_query += " AND p.brand_id = %s"
+            params.append(brand_filter)
+        
+        search_query += " GROUP BY p.phone_id, p.phone_name, p.brand_id, b.brand_name"
+        
+        if min_reviews:
+            search_query += f" HAVING COUNT(DISTINCT r.review_id) >= {min_reviews}"
+        
+        search_query += " ORDER BY review_count DESC, processed_sentiments DESC, p.phone_name"
+        
+        if limit:
+            search_query += f" LIMIT {limit}"
+        
+        cursor.execute(search_query, params)
+        results = cursor.fetchall()
+        
+        # Convert float fields
+        for result in results:
+            if result['avg_sentiment_rating'] is not None:
+                result['avg_sentiment_rating'] = float(result['avg_sentiment_rating'])
+        
+        cursor.close()
+        conn.close()
+        
+        logger.info(f"Search for '{query}' returned {len(results)} results")
+        return {
+            "query": query,
+            "total_results": len(results),
+            "phones": results
+        }
+    except Exception as e:
+        logger.error(f"Error in search: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# 8. Get unprocessed reviews (for ML pipeline)
+@app.get("/reviews/unprocessed")
+def get_unprocessed_reviews(limit: Optional[int] = Query(100)) -> List[Dict]:
+    """Get reviews that haven't been processed for sentiment analysis yet"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT r.*, p.phone_name, b.brand_name
+            FROM reviews r
+            LEFT JOIN phones p ON r.phone_id = p.phone_id
+            LEFT JOIN brands b ON p.brand_id = b.brand_id
+            LEFT JOIN sentiments s ON r.review_id = s.review_id
+            WHERE s.sentiment_id IS NULL
+            ORDER BY r.review_id ASC
+            LIMIT %s
+        """, (limit,))
+        results = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        
+        logger.info(f"Retrieved {len(results)} unprocessed reviews")
+        return results
+    except Exception as e:
+        logger.error(f"Error getting unprocessed reviews: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# 9. Health check for ML processing status
+@app.get("/ml-status")
+def get_ml_processing_status() -> Dict:
+    """Get status of ML processing (sentiment analysis and topic modeling)"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Get processing statistics
+        cursor.execute("""
+            SELECT 
+                COUNT(r.review_id) as total_reviews,
+                COUNT(s.sentiment_id) as processed_sentiments,
+                COUNT(t.topic_id) as total_topics,
+                COUNT(rt.review_id) as topic_assignments
+            FROM reviews r
+            LEFT JOIN sentiments s ON r.review_id = s.review_id
+            LEFT JOIN topics t ON r.phone_id = t.phone_id
+            LEFT JOIN review_topics rt ON r.review_id = rt.review_id
+        """)
+        stats = cursor.fetchone()
+        
+        cursor.close()
+        conn.close()
+        
+        total_reviews = stats['total_reviews']
+        processed_sentiments = stats['processed_sentiments']
+        
+        result = {
+            "total_reviews": total_reviews,
+            "processed_sentiments": processed_sentiments,
+            "unprocessed_reviews": total_reviews - processed_sentiments,
+            "processing_percentage": round((processed_sentiments / total_reviews * 100), 1) if total_reviews > 0 else 0,
+            "total_topics": stats['total_topics'],
+            "topic_assignments": stats['topic_assignments']
+        }
+        
+        return result
+    except Exception as e:
+        logger.error(f"Error getting ML status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Run with: uvicorn db_api:app --reload --port 8000
