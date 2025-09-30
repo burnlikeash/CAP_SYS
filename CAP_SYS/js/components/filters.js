@@ -84,7 +84,6 @@ class FilterComponent {
                 let sentiment = null;
                 if (btn.classList.contains('positive')) sentiment = 'positive';
                 else if (btn.classList.contains('negative')) sentiment = 'negative';
-                else if (btn.classList.contains('neutral')) sentiment = 'neutral';
                 this.selectSentiment(sentiment, btn);
             });
         });

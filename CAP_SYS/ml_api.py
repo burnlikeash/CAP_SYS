@@ -132,7 +132,7 @@ def run_sentiment_analysis():
             FROM reviews r
             LEFT JOIN sentiments s ON r.review_id = s.review_id
             WHERE s.review_id IS NULL
-            LIMIT 2000
+            LIMIT 4000
         """)
         
         reviews = cursor.fetchall()

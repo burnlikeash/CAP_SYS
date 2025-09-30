@@ -522,7 +522,6 @@ class SentimentScopeApp {
         switch (sentiment) {
             case 'positive': return '#10b981';
             case 'negative': return '#ef4444';
-            case 'neutral':  return '#6b7280';
             default: return '#d1d5db';
         }
     }
@@ -531,7 +530,6 @@ class SentimentScopeApp {
         switch (sentiment) {
             case 'positive': return '#dcfce7';
             case 'negative': return '#fee2e2';
-            case 'neutral':  return '#f3f4f6';
             default: return '#f9fafb';
         }
     }
@@ -540,7 +538,6 @@ class SentimentScopeApp {
         switch (sentiment) {
             case 'positive': return '#166534';
             case 'negative': return '#991b1b';
-            case 'neutral':  return '#374151';
             default: return '#6b7280';
         }
     }

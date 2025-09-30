@@ -81,7 +81,6 @@ let TOPICS = [];
 
 const FILTERS = [
     { name: "Positive", type: "sentiment", value: "positive" },
-    { name: "Neutral", type: "sentiment", value: "neutral" },
     { name: "Negative", type: "sentiment", value: "negative" },
     { name: "Price: High", type: "price", value: "high" },
     { name: "Price: Low", type: "price", value: "low" }
